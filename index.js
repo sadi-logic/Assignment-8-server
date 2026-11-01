@@ -41,6 +41,12 @@ app.get("/studios",async (req,res)=>{
     res.send(result);
 })
 
+app.get("/my-studio-listing/:email", async (req, res) => {
+  const email = req.params.email;
+  const result = await studiosCollection.find({ CreatorEmail: email }).toArray();
+  res.send(result);
+});
+
 app.get("/studios/:id", async (req, res) => {
   const id = req.params.id;
 
