@@ -156,10 +156,113 @@ app.delete("/studios/:id", verifyToken, async (req, res) => {
   res.send("Studio deleted successfully");
 });
 
+function parseTimeInMinutes(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const match = /^(\d{1,2}):([0-5]\d)(?:\s*(AM|PM))?$/i.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const period = match[3]?.toUpperCase();
+
+  if (period) {
+    if (hours < 1 || hours > 12) {
+      return null;
+    }
+    hours = (hours % 12) + (period === "PM" ? 12 : 0);
+  } else if (hours > 23) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
 app.post("/studios/booking", verifyToken, async (req, res) => {
   const bookingData = req.body;
-  const result = await studioBookingCollection.insertOne(bookingData);
-  res.send(result);
+  if (!bookingData || typeof bookingData !== "object" || Array.isArray(bookingData)) {
+    return res.status(400).json({ message: "Invalid booking details." });
+  }
+
+  const { studioId, date, startTime, hours } = bookingData;
+  const startMinutes = parseTimeInMinutes(startTime);
+  const duration = Number(hours);
+
+  if (
+    typeof studioId !== "string" ||
+    !studioId ||
+    typeof date !== "string" ||
+    !date ||
+    startMinutes === null ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
+    return res.status(400).json({ message: "Invalid booking details." });
+  }
+
+  const endMinutes = startMinutes + duration * 60;
+  const studioIds = [studioId];
+  if (ObjectId.isValid(studioId)) {
+    studioIds.push(new ObjectId(studioId));
+  }
+
+  const confirmedBookings = await studioBookingCollection
+    .find({
+      status: /^\s*confirmed\s*$/i,
+      $and: [
+        { $or: [{ date }, { bookingDate: date }] },
+        {
+          $or: [
+            { studioId: { $in: studioIds } },
+            { studioID: { $in: studioIds } },
+            { "studio._id": { $in: studioIds } },
+            { "studio.id": studioId },
+          ],
+        },
+      ],
+    })
+    .toArray();
+
+  for (const booking of confirmedBookings) {
+    const existingStartMinutes = parseTimeInMinutes(
+      booking.startTime ?? booking.start ?? booking.startingTime
+    );
+    const existingHours = Number(booking.hours ?? booking.duration ?? booking.totalHours);
+    const existingEndTime = booking.endTime ?? booking.end ?? booking.endingTime;
+    const existingEndMinutes =
+      existingEndTime === undefined
+        ? existingStartMinutes === null || !Number.isFinite(existingHours)
+          ? null
+          : existingStartMinutes + existingHours * 60
+        : parseTimeInMinutes(existingEndTime);
+
+    if (
+      existingStartMinutes === null ||
+      existingEndMinutes === null ||
+      existingEndMinutes <= existingStartMinutes
+    ) {
+      return res.status(500).json({
+        message: "Unable to verify studio availability. Please try again later.",
+      });
+    }
+
+    if (startMinutes < existingEndMinutes && endMinutes > existingStartMinutes) {
+      return res.status(409).json({
+        message:
+          "This studio is already booked for the selected time slot. Please choose another time.",
+      });
+    }
+  }
+
+  const result = await studioBookingCollection.insertOne({
+    ...bookingData,
+    status: "Pending",
+  });
+  return res.status(201).send(result);
 })
 
 app.get("/studios/booking/:email", verifyToken, async (req, res) => {
