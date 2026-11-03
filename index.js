@@ -280,3 +280,5 @@ app.delete("/studios/booking/:id", verifyToken, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`SERVER is running on port ${PORT}`);
 })
+
+export default app;
