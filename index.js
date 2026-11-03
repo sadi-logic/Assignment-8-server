@@ -108,7 +108,14 @@ app.patch("/studios/:id", async (req, res) => {
   res.send("Studio updated successfully");
 });
 
-
+app.delete("/studios/:id", verifyToken, async (req, res) => {
+  const id = req.params.id;
+  const result = await studiosCollection.deleteOne({ _id: new ObjectId(id) });
+  if (result.deletedCount === 0) {
+    return res.status(404).send("Studio not found");
+  }
+  res.send("Studio deleted successfully");
+});
 
 app.post("/studios/booking", verifyToken, async (req, res) => {
   const bookingData = req.body;
