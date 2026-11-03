@@ -1,13 +1,18 @@
 import express from "express"
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const PORT = 5000;
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
+}));
 app.use(express.json());
+app.use(cookieParser());
 
 const client = new MongoClient(process.env.MONGO_URI);
 export async function connectToMongoDB() {
@@ -25,30 +30,64 @@ const db = connectClient.db("studiospace");
 const studiosCollection = db.collection("studios")
 const studioBookingCollection = db.collection("studioBookings")
 
-//middleware to verify the token
-const verifyToken = async(req, res, next) => {
-  const authHeader = req.headers.authorization;
 
-  const token = authHeader.split(" ")[1];
-  if (!token) {
-    return res.status(401).send({ message: "Unauthorized access" })
-  }
-  const JWKS = createRemoteJWKSet(
-    new URL(`${process.env.FRONTEND_URL}/api/auth/jwks`)
-  );
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.FRONTEND_URL}/api/auth/jwks`)
+);
 
-  try{
-    const {payload} = await jwtVerify(token, JWKS, {
-      issuer: `${process.env.FRONTEND_URL}/api/auth`,
-      audience: "studiospace-server"
-    });
-    req.user = payload;
-  } catch (error) {
-    return res.status(401).send({ message: "Unauthorized access" });
-  }
-
-  next();
+async function verifyJwt(token) {
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer: `${process.env.FRONTEND_URL}/api/auth`,
+    audience: "studiospace-server",
+  });
+  return payload;
 }
+
+const verifyToken = async (req, res, next) => {
+  const token = req.cookies?.studio_access;
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized access" });
+  }
+
+  try {
+    req.user = await verifyJwt(token);
+    next();
+  } catch {
+    return res.status(401).json({ message: "Unauthorized access" });
+  }
+};
+
+
+app.post("/auth/session", async (req, res) => {
+  const authorization = req.get("authorization");
+
+  if (!authorization?.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Unauthorized access" });
+  }
+
+  const token = authorization.slice("Bearer ".length);
+
+  try {
+    const payload = await verifyJwt(token);
+
+    if (typeof payload.exp !== "number") {
+      return res.status(401).json({ message: "Unauthorized access" });
+    }
+
+    res.cookie("studio_access", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: Math.max(0, payload.exp * 1000 - Date.now()),
+    });
+
+    return res.sendStatus(204);
+  } catch {
+    return res.status(401).json({ message: "Unauthorized access" });
+  }
+});
 
 app.get("/", (req, res) => {
   res.send("Hello world")
@@ -68,14 +107,14 @@ app.get("/studios", async (req, res) => {
   res.send(result);
 })
 
-app.get("/my-studio-listing/:email", async (req, res) => {
+app.get("/my-studio-listing/:email", verifyToken, async (req, res) => {
   const email = req.params.email;
 
-  if(email !== req.user.email){
+  if (email !== req.user.email) {
     return res.status(403).send({ message: "Forbidden access" });
   }
   const result = await studiosCollection.find({ CreatorEmail: email }).toArray();
-  
+
   res.send(result);
 });
 
@@ -92,7 +131,7 @@ app.get("/studios/:id", async (req, res) => {
 });
 
 
-app.patch("/studios/:id", async (req, res) => {
+app.patch("/studios/:id", verifyToken, async (req, res) => {
   const id = req.params.id;
   const updatedData = req.body;
 
