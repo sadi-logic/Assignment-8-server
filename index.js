@@ -44,8 +44,16 @@ async function verifyJwt(token) {
 }
 
 const verifyToken = async (req, res, next) => {
-  const token = req.cookies?.studio_access;
+  let token = req.cookies?.studio_access;
 
+  if (!token) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    }
+
+
+  }
   if (!token) {
     return res.status(401).json({ message: "Unauthorized access" });
   }
@@ -77,11 +85,19 @@ app.post("/auth/session", async (req, res) => {
 
     res.cookie("studio_access", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: true,
+      sameSite: "none",
       path: "/",
       maxAge: Math.max(0, payload.exp * 1000 - Date.now()),
     });
+
+    // res.cookie("studio_access", token, {
+    //   httpOnly: true,
+    //   secure: process.env.NODE_ENV === "production",
+    //   sameSite: "lax",
+    //   path: "/",
+    //   maxAge: Math.max(0, payload.exp * 1000 - Date.now()),
+    // });
 
     return res.sendStatus(204);
   } catch {
