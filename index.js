@@ -91,14 +91,6 @@ app.post("/auth/session", async (req, res) => {
       maxAge: Math.max(0, payload.exp * 1000 - Date.now()),
     });
 
-    // res.cookie("studio_access", token, {
-    //   httpOnly: true,
-    //   secure: process.env.NODE_ENV === "production",
-    //   sameSite: "lax",
-    //   path: "/",
-    //   maxAge: Math.max(0, payload.exp * 1000 - Date.now()),
-    // });
-
     return res.sendStatus(204);
   } catch {
     return res.status(401).json({ message: "Unauthorized access" });
@@ -106,7 +98,7 @@ app.post("/auth/session", async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("Hello world")
+  res.send("Backend server of StudioSpace")
 
 })
 
